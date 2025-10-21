@@ -18,18 +18,44 @@ class Packet:
     def __truediv__(self, other):
         self.add_payload(other)
         return self
+    
+    def show(self):
+        print("########",self.__class__.__name__, "#######" )
+        dict = vars(self)
+        underlayer = None
+        for key in dict:
+            if key != 'payload':
+                print(key, ":", dict[key])
+            else:
+                underlayer = dict[key]
+        if underlayer:
+            underlayer.show()
 
 class Ether(Packet):
-    def __init__(self, dst_mac, src_mac, bytes=None):
+    def __init__(self, dst_mac=None, src_mac=None, bytes=None):
         super().__init__()
-        self.dst_mac=dst_mac
-        self.src_mac=src_mac
-        self.type=2048
-        self.payload = None
+        if not bytes:
+            self.dst_mac=dst_mac
+            self.src_mac=src_mac
+            self.type=2048
+            self.payload = None
+        else:
+            self.dst_mac, self.src_mac, self.type,  =\
+                  struct.unpack("!6s6sH", bytes) #self.payload
+            self.src_mac = self.bytes2mac(self.src_mac)
+            self.dst_mac = self.bytes2mac(self.dst_mac)
+
     def mac2bytes(self, mac):
         return bytes.fromhex(mac.replace(":",""))
+    
+    def bytes2mac(self, bytes):
+        return ":".join(f"{b:02x}" for b in bytes) #written with help from GenAI
+    
     def build(self):
-        return struct.pack("!6s6sH", self.mac2bytes(self.dst_mac), self.mac2bytes(self.src_mac), self.type) + self.payload.build()
+        if self.payload:
+            return struct.pack("!6s6sH", self.mac2bytes(self.dst_mac), self.mac2bytes(self.src_mac), self.type) + self.payload.build
+        else:
+            return struct.pack("!6s6sH", self.mac2bytes(self.dst_mac), self.mac2bytes(self.src_mac), self.type)
 
 class IP(Packet):
     def __init__(self, src_ip, dst_ip, bytes=None):
@@ -79,7 +105,10 @@ class ICMP(Packet):
 # class UDP(Packet):
 #     def __init__(self, sport, dport, payload)
 
-#print(Ether("00:00:00:06:08:76", "8e:68:46:88:2c:5a").build())
+bytes = Ether("00:00:00:06:08:76", "8e:68:46:88:2c:5a").build()
+print(bytes.hex())
+newether = Ether(bytes=bytes).show()
+print(Ether(bytes=bytes))
 #print(IP(src_ip="192.168.159.129", dst_ip="8.8.8.8").build())
-print(hex(20))
+
 
