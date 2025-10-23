@@ -1,6 +1,7 @@
 import socket
 import struct
 import time
+from layers import Ether
 
 def send(pkt):
     """
@@ -21,7 +22,7 @@ def send(pkt):
     
     # Build packet bytes starting from IP layer
     pkt_bytes = ip_pkt.build()
-    
+    print(pkt_bytes)
     # Send the packet
     sock.sendto(pkt_bytes, (dst_ip, 0))
     sock.close()
@@ -53,7 +54,7 @@ def sendp(pkt, interface):
     print(f"[*] Sent packet on interface {interface}")
 
 
-def sr(pkt, timeout=5, ether_class=None):
+def sr(pkt, timeout=5):
     """
     Send packet at layer 3 and receive reply at layer 2.
     Returns the received packet object built from the reply bytes.
@@ -75,6 +76,12 @@ def sr(pkt, timeout=5, ether_class=None):
     
     # Create raw socket for receiving at layer 2
     recv_sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
+    
+    #socket was recieving packets including ones we sent. GenAI helped debug this and helped identify the the codes exposed by ubuntu because python didn't:
+    SOL_PACKET = 263
+    PACKET_IGNORE_OUTGOING = 23
+    recv_sock.setsockopt(SOL_PACKET, PACKET_IGNORE_OUTGOING, 1)
+    
     recv_sock.settimeout(timeout)
     
     # Get destination IP
@@ -92,15 +99,8 @@ def sr(pkt, timeout=5, ether_class=None):
         reply_bytes, addr = recv_sock.recvfrom(65535)
         recv_sock.close()
         
-        # Build packet object from received bytes
-        if ether_class is None:
-            print("[!] Warning: Ether class not provided, returning raw bytes")
-            return reply_bytes
-        
-        reply_pkt = ether_class(bytes_data=reply_bytes)
-        
         print("[*] Received reply")
-        return reply_pkt
+        return Ether(bytes=reply_bytes)
         
     except socket.timeout:
         recv_sock.close()
