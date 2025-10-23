@@ -22,7 +22,6 @@ def send(pkt):
     
     # Build packet bytes starting from IP layer
     pkt_bytes = ip_pkt.build()
-    print(pkt_bytes)
     # Send the packet
     sock.sendto(pkt_bytes, (dst_ip, 0))
     sock.close()
@@ -76,7 +75,6 @@ def sr(pkt, timeout=5):
     
     # Create raw socket for receiving at layer 2
     recv_sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
-    
     #socket was recieving packets including ones we sent. GenAI helped debug this and helped identify the the codes exposed by ubuntu because python didn't:
     SOL_PACKET = 263
     PACKET_IGNORE_OUTGOING = 23
@@ -88,7 +86,6 @@ def sr(pkt, timeout=5):
     dst_ip = ip_pkt.dst_ip
     
     # Build and send packet bytes
-    print("pack proto", ip_pkt.proto)
     pkt_bytes = ip_pkt.build()
     send_sock.sendto(pkt_bytes, (dst_ip, 0))
     send_sock.close()
@@ -109,7 +106,7 @@ def sr(pkt, timeout=5):
         return None
 
 
-def sniff(interface=None, timeout=5, ether_class=None):
+def sniff(interface=None, timeout=5):
     """
     Receive one packet at layer 2 and build packet object from bytes.
     Returns the packet object.
@@ -134,15 +131,9 @@ def sniff(interface=None, timeout=5, ether_class=None):
         pkt_bytes, addr = sock.recvfrom(65535)
         sock.close()
         
-        # Build packet object from received bytes
-        if ether_class is None:
-            print("[!] Warning: Ether class not provided, returning raw bytes")
-            return pkt_bytes
-        
-        pkt = ether_class(bytes_data=pkt_bytes)
-        
+        # Build packet object from received bytes 
         print("[*] Captured packet")
-        return pkt
+        return Ether(bytes=pkt_bytes)
         
     except socket.timeout:
         sock.close()

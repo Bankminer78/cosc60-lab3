@@ -20,17 +20,16 @@ class Packet:
         if payload is None:
             return
         if isinstance(self.payload, Packet):
-            print(self)
-            print(payload)
             self.payload.add_payload(payload)
         else:
             if isinstance(self, IP) and isinstance(payload, UDP) or isinstance(payload, TCP):
                 payload.src_ip = self.src_ip
                 payload.dst_ip = self.dst_ip
                 if isinstance(payload, UDP):
-                    print("an UDP div")
                     self.proto = 0x11
-                    print(self.proto)
+                if isinstance(payload, TCP):
+                    self.proto = 0x06
+
             self.payload = payload
 
     def __truediv__(self, other):
@@ -42,17 +41,23 @@ class Packet:
         dict = vars(self)
         underlayer = None
         for key in dict:
-            if key != "bytes":
-                if key != 'payload':
-                    print(key, ":", dict[key])
-                else:
-                    underlayer = dict[key]
-        if 'bytes' in dict and dict['bytes']: print("bytes:", dict["bytes"].hex())
+            if key == "bytes": # Formatted using GenAI and to process payload 
+                continue  
+            elif key == 'payload':
+                underlayer = dict[key]  
+            elif key == 'message':
+                print(key, ":", dict[key].decode())  
+                underlayer = dict[key]  
+            else:
+                print(key, ":", dict[key])  
+        
+        if 'bytes' in dict and dict['bytes']: 
+            print("bytes:", dict["bytes"].hex())
+        
         if underlayer:
             if isinstance(underlayer, Packet):
                 underlayer.show()
-            else:
-                print(underlayer.hex())
+
 
 def calculate_checksum(data): #GenAI helped with understanding bitshifting, masking, typing, and folding convention
     if len(data) % 2 == 1:
@@ -62,7 +67,7 @@ def calculate_checksum(data): #GenAI helped with understanding bitshifting, mask
         sum = sum + ((data[i] << 8) + data[i+1])
         sum = (sum & 0xFFFF) + (sum >> 16)
     sum = (sum & 0xFFFF) + (sum >> 16)
-    return sum ^ 0xFFFF #(~sum).to_bytes(2, 'big') 
+    return sum ^ 0xFFFF 
 
 class Ether(Packet):
     def __init__(self, dst_mac=None, src_mac=None, bytes=None):
@@ -76,7 +81,6 @@ class Ether(Packet):
         else:
             self.dst_mac, self.src_mac, self.type = struct.unpack("!6s6sH", bytes[:14]) #self.payload
             if self.type == 0x800:
-                print("Identified an IP Header!")
                 self.payload = IP(bytes=bytes[14:])
             self.src_mac = self.bytes2mac(self.src_mac)
             self.dst_mac = self.bytes2mac(self.dst_mac)
@@ -112,10 +116,11 @@ class IP(Packet):
         else:
             self.version_ihl, self.tos, self.len, self.id, self.flags_frag, self.ttl, self.proto, self.chksum, self.src_ip, self.dst_ip = struct.unpack("!BBHHHBBH4s4s", bytes[:20])
             if self.proto == 0x0001:
-                print("Identified ICMP Payload!")
                 self.payload = ICMP(bytes=bytes[20:])
             if self.proto == 0x11:
                 self.payload = UDP(bytes=bytes[20:])
+            if self.proto == 0x06:
+                self.payload = TCP(bytes=bytes[20:])
             self.src_ip = socket.inet_ntoa(self.src_ip)
             self.dst_ip = socket.inet_ntoa(self.dst_ip)
             self.bytes = bytes
@@ -124,14 +129,16 @@ class IP(Packet):
     def build(self):
         if self.payload:
             payload_bytes = self.payload.build()
-            print("building ip", self.proto)
-            return struct.pack("!BBHHHBBH4s4s", self.version_ihl, self.tos, self.len, self.id, self.flags_frag, self.ttl, self.proto, self.chksum, socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip)) + payload_bytes
+            header = struct.pack("!BBHHHBBH4s4s", self.version_ihl, self.tos, self.len, self.id, self.flags_frag, self.ttl, self.proto, 0, socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip))
+            self.chksum = calculate_checksum(header) #GenAI reminded me that IPv4 checksum only uses its own header
+            header = struct.pack("!BBHHHBBH4s4s", self.version_ihl, self.tos, self.len, self.id, self.flags_frag, self.ttl, self.proto, self.chksum, socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip))
+            return header + payload_bytes
         else:
             return self.bytes
     
     def add_payload(self, payload):
-        self.chksum = calculate_checksum(self.bytes + payload.build())
-        self.len = 5 + len(payload.build())
+        payload_len = len(payload.build())
+        self.len = 20 + payload_len
         return super().add_payload(payload)
 
 
@@ -172,7 +179,7 @@ class UDP(Packet):
     def add_payload(self, payload):
         assert self.src_ip and self.dst_ip, "IP Layer not created yet!"
         self.len = 8 + len(payload.build())
-        pseudo_header = struct.pack("!4s4sBBH", socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip), 0x00, 4, self.len)
+        pseudo_header = struct.pack("!4s4sBBH", socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip), 0x00, 0x11, self.len)
         header = struct.pack("!HHHH", self.sport, self.dport, self.len, 0)
         self.chksum = calculate_checksum(pseudo_header + header + payload.build())
         return super().add_payload(payload)
@@ -198,7 +205,7 @@ class DNS(Packet):
             # self.ad      = ('0')
             # self.cd      = ('0')
             # self.rcode   = ('0')
-            self.flags = 0x0100 #H
+            self.flags = 0x0100 #H compressed 
             self.qdcount = 1 #H
             self.ancount = 0 #H
             self.nscount = 0 #H
@@ -213,7 +220,6 @@ class DNS(Packet):
             self.addr = socket.inet_ntoa(*struct.unpack("!4s", bytes[-4:]))
 
     def bytes2qname(self, bytes): #GenAI assisted during debugging
-        print(bytes)
         i = 0
         ret = bytearray()
         while bytes[i] != 0:           
@@ -236,26 +242,53 @@ class DNS(Packet):
         + self.qname2bytes(self.qname) + b'\x00\x01' + b'\x00\x01' #query for Type A and IN
     
 class TCP(Packet):
-    def __init__(self, seq, ack):
-        self.sport    = 20
-        self.dport    = 80
-        self.seq      = seq
-        self.ack      = ack
-        self.dataofs  = None
-        self.reserved = ('0')
-        self.flags    = ('<Flag 2 (S)>')
-        self.window   = ('8192')
-        self.chksum   = ('None')
-        self.urgptr   = ('0')
-        self.options  = ("b''")
+    def __init__(self, sport=None, dport=None, seq=1, ack= 0, flag=None, data=None, bytes=None):
+        if not bytes:
+            self.sport    = sport #H
+            self.dport    = dport #H
+            self.seq      = seq #I
+            self.ack      = ack #I
+            self.offset = 5
+            self.src_ip = None
+            self.dst_ip = None
+            if flag == 'SYN':
+                self.offset_reserv_flags = (self.offset << 12) | 0x002#H
+            if flag == 'ACK':
+                self.offset_reserv_flags = (self.offset << 12) | 0x010
+            if flag == 'PSH':
+                self.offset_reserv_flags = (self.offset << 12) | 0x018
+            # else:
+            #     self.offset_reserv_flags = (self.offset << 12) | 0x003
+            # self.dataofs  = None
+            # self.reserved = ('0')
+            # self.flags    = ('<Flag 2 (S)>') #H
+            self.window   = 8192 #H
+            self.chksum   = 0 #H
+            self.urgptr   = 0 #H
+            self.message = data
+            #self.options  = ("b''")
+            
+        else:
+            self.sport, self.dport, self.seq, self.ack, self.offset_reserv_flags, self.window, self.chksum, self.urgptr  = struct.unpack("!HHIIHHHH", bytes[:20])
+            self.offset = (self.offset_reserv_flags >> 12) & 0xF #GenAI helped with converting offset
+            header_len = self.offset * 4
+            self.message = bytes[header_len:]  # Start payload after actual header (including options)
+
+    def add_payload(self, payload):
+        
+        return super().add_payload(payload)
     
-# bytes = Ether("00:00:00:06:08:76", "8e:68:46:88:2c:5a").build()
-# print(bytes.hex())
-# newether = Ether(bytes=bytes).show()
-# print(Ether(bytes=bytes))
-# ip = IP(src_ip="192.168.159.129", dst_ip="8.8.8.8").build()
-# newip = IP(ip)
-# newip.show()
-#print(IP(src_ip="192.168.159.129", dst_ip="8.8.8.8").build())
+    def build(self):
+        if self.message:
+            payload =  self.message.encode()
+        else:
+            payload = b''
 
-
+        if self.src_ip and self.dst_ip:
+            self.len = 20 + len(payload)
+            pseudo_header = struct.pack("!4s4sBBH", socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip), 0x00, 0x06, self.len)
+            header = struct.pack("!HHIIHHHH", self.sport, self.dport, self.seq, self.ack, self.offset_reserv_flags, self.window, 0, self.urgptr)
+            self.chksum = calculate_checksum(pseudo_header + header + payload)
+            return struct.pack("!HHIIHHHH", self.sport, self.dport, self.seq, self.ack, self.offset_reserv_flags, self.window, self.chksum, self.urgptr) + payload
+        else:
+            return struct.pack("!HHIIHHHH", self.sport, self.dport, self.seq, self.ack, self.offset_reserv_flags, self.window, self.chksum, self.urgptr) + payload
