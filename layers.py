@@ -11,8 +11,17 @@ class Packet:
         if payload is None:
             return
         if isinstance(self.payload, Packet):
+            print(self)
+            print(payload)
             self.payload.add_payload(payload)
         else:
+            if isinstance(self, IP) and isinstance(payload, UDP) or isinstance(payload, TCP):
+                payload.src_ip = self.src_ip
+                payload.dst_ip = self.dst_ip
+                if isinstance(payload, UDP):
+                    print("an UDP div")
+                    self.proto = 0x11
+                    print(self.proto)
             self.payload = payload
 
     def __truediv__(self, other):
@@ -104,6 +113,7 @@ class IP(Packet):
     def build(self):
         if self.payload:
             payload_bytes = self.payload.build()
+            print("building ip", self.proto)
             return struct.pack("!BBHHHBBH4s4s", self.version_ihl, self.tos, self.len, self.id, self.flags_frag, self.ttl, self.proto, self.chksum, socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip)) + payload_bytes
         else:
             return self.bytes
@@ -128,44 +138,83 @@ class ICMP(Packet):
             self.bytes =  struct.pack("!BBHHH32s", self.type, self.code, self.chksum, self.id, self.seq, self.ping)
             self.payload = None
         else:
-            print(bytes)
             self.type, self.code, self.chksum, self.id, self.seq, self.payload = struct.unpack("!BBHHH32s", bytes)
-            print(self.type)
 
     def build(self):
         return self.bytes
 
 class UDP(Packet):
-    def __init__(self, sport=None, dport=None, payload=None):
-        self.sport  = 53
-        self.dport  = 53
-        self.len    = 0
-        self.chksum = 0
+    def __init__(self, sport=None, dport=None, bytes=None):
+        if not bytes:
+            self.sport  = 53
+            self.dport  = 53
+            self.src_ip = None
+            self.dst_ip = None
+            self.len    = 0
+            self.chksum = 0
+            self.payload = None
+        else:
+            self.sport, self.dport, self.len, self.chksum = struct.unpack("!HHHH", bytes[:8])
+            self.payload = bytes[8:]
+
+    def add_payload(self, payload):
+        assert self.src_ip and self.dst_ip, "IP Layer not created yet!"
+        self.len = 8 + len(payload.build())
+        pseudo_header = struct.pack("!4s4sBBH", socket.inet_aton(self.src_ip), socket.inet_aton(self.dst_ip), 0x00, 4, self.len)
+        header = struct.pack("!HHHH", self.sport, self.dport, self.len, 0)
+        self.chksum = calculate_checksum(pseudo_header + header + payload.build())
+        return super().add_payload(payload)
+    
+    def build(self):
+        if self.payload:
+            return struct.pack("!HHHH", self.sport, self.dport, self.len, self.chksum) + self.payload.build()
+        else:
+            return struct.pack("!HHHH", self.sport, self.dport, self.len, self.chksum)
+
 
 class DNS(Packet):
-    def __init__(self):
-        self.length  = None
-        self.id      = ('0')
-        self.qr      = ('0')
-        self.opcode  = ('0')
-        self.aa      = ('0')
-        self.tc      = ('0')
-        self.rd      = ('1')
-        self.ra      = ('0')
-        self.z       = ('0')
-        self.ad      = ('0')
-        self.cd      = ('0')
-        self.rcode   = ('0')
-        self.qdcount = ('None')
-        self.ancount = ('None')
-        self.nscount = ('None')
-        self.arcount = ('None')
-        self.qd      = ('[\x1b[0m<\x1b[0m\x1b[31m\x1b[1mDNSQR\x1b[0m  \x1b[0m|\x1b[0m\x1b[0m>\x1b[0m]')
-        self.an      = ('[]')
-        self.ns      = ('[]')
-        self.ar      = ('[]')
+    def __init__(self, qname=None, bytes=None):
+        if not bytes:
+            self.id      = 0x3121 #random number chosen for demonstration #H
+            # self.qr      = ('0')
+            # self.opcode  = ('0')
+            # self.aa      = ('0')
+            # self.tc      = ('0')
+            # self.rd      = ('1')
+            # self.ra      = ('0')
+            # self.z       = ('0')
+            # self.ad      = ('0')
+            # self.cd      = ('0')
+            # self.rcode   = ('0')
+            self.flags = 0x0100 #H
+            self.qdcount = 1 #H
+            self.ancount = 0 #H
+            self.nscount = 0 #H
+            self.arcount = 0 #H
+            self.qname     = qname
+            self.qtype = 1 #H
+            self.qclass = 1 #H
+            self.an      = ('[]')
+            self.ns      = ('[]')
+            self.ar      = ('[]')
+        else:
+            ...
 
-
+    def qname2bytes(self, qname):
+        parts = qname.split(".")
+        ret = bytearray()
+        for part in parts:
+            ret.append(len(part))
+            ret += part.encode()
+        ret.append(0)         #GenAI advised on bytearray
+        return ret
+    
+    def build(self):
+        return struct.pack("!HHHHHH", self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount)\
+        + self.qname2bytes(self.qname) + b'\x00\x01' + b'\x00\x01' #query for Type A and IN
+    
+class TCP(Packet):
+    ...
 # bytes = Ether("00:00:00:06:08:76", "8e:68:46:88:2c:5a").build()
 # print(bytes.hex())
 # newether = Ether(bytes=bytes).show()

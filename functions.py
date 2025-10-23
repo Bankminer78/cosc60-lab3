@@ -81,13 +81,14 @@ def sr(pkt, timeout=5):
     SOL_PACKET = 263
     PACKET_IGNORE_OUTGOING = 23
     recv_sock.setsockopt(SOL_PACKET, PACKET_IGNORE_OUTGOING, 1)
-    
+
     recv_sock.settimeout(timeout)
     
     # Get destination IP
     dst_ip = ip_pkt.dst_ip
     
     # Build and send packet bytes
+    print("pack proto", ip_pkt.proto)
     pkt_bytes = ip_pkt.build()
     send_sock.sendto(pkt_bytes, (dst_ip, 0))
     send_sock.close()
