@@ -7,6 +7,15 @@ class Packet:
     def __init__(self):
         self.payload = None
 
+    def get_layer(self, layer):
+        if self.__class__.__name__ == layer:
+            return self
+        else:
+            if self.payload:
+                return self.payload.get_layer(layer)
+            else:
+                return None
+
     def add_payload(self, payload):
         if payload is None:
             return
@@ -105,6 +114,8 @@ class IP(Packet):
             if self.proto == 0x0001:
                 print("Identified ICMP Payload!")
                 self.payload = ICMP(bytes=bytes[20:])
+            if self.proto == 0x11:
+                self.payload = UDP(bytes=bytes[20:])
             self.src_ip = socket.inet_ntoa(self.src_ip)
             self.dst_ip = socket.inet_ntoa(self.dst_ip)
             self.bytes = bytes
@@ -155,7 +166,8 @@ class UDP(Packet):
             self.payload = None
         else:
             self.sport, self.dport, self.len, self.chksum = struct.unpack("!HHHH", bytes[:8])
-            self.payload = bytes[8:]
+            #for this lab we assume payload is always DNS
+            self.payload = DNS(bytes=bytes[8:])
 
     def add_payload(self, payload):
         assert self.src_ip and self.dst_ip, "IP Layer not created yet!"
@@ -194,11 +206,21 @@ class DNS(Packet):
             self.qname     = qname
             self.qtype = 1 #H
             self.qclass = 1 #H
-            self.an      = ('[]')
-            self.ns      = ('[]')
-            self.ar      = ('[]')
+            self.addr = None
         else:
-            ...
+            self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount = struct.unpack("!HHHHHH", bytes[:12])
+            self.qname = self.bytes2qname(bytes[12:])
+            self.addr = socket.inet_ntoa(*struct.unpack("!4s", bytes[-4:]))
+
+    def bytes2qname(self, bytes): #GenAI assisted during debugging
+        print(bytes)
+        i = 0
+        ret = bytearray()
+        while bytes[i] != 0:           
+            ret += bytes[i+1:i+bytes[i]+1] + b'.'
+            i += 1 + bytes[i]
+        return ret[:-1].decode()
+
 
     def qname2bytes(self, qname):
         parts = qname.split(".")
@@ -214,7 +236,19 @@ class DNS(Packet):
         + self.qname2bytes(self.qname) + b'\x00\x01' + b'\x00\x01' #query for Type A and IN
     
 class TCP(Packet):
-    ...
+    def __init__(self, seq, ack):
+        self.sport    = 20
+        self.dport    = 80
+        self.seq      = seq
+        self.ack      = ack
+        self.dataofs  = None
+        self.reserved = ('0')
+        self.flags    = ('<Flag 2 (S)>')
+        self.window   = ('8192')
+        self.chksum   = ('None')
+        self.urgptr   = ('0')
+        self.options  = ("b''")
+    
 # bytes = Ether("00:00:00:06:08:76", "8e:68:46:88:2c:5a").build()
 # print(bytes.hex())
 # newether = Ether(bytes=bytes).show()

@@ -40,8 +40,8 @@ if __name__ == "__main__":
     domain_name = "vibrantcloud.org"
     pkt = Ether(src_mac=my_mac, dst_mac=dst_mac)/IP(src_ip=my_ip, dst_ip="8.8.8.8", proto=17)/UDP(sport=12345, dport=53)/DNS(qname=domain_name)
     dns = sr(pkt)
-    # dns.show()
-    # dns_layer = dns.get_layer("DNS")  #helper method to get a specified layer
-    # print(dns_layer.addr)
-    # addr = dns_layer.addr
+    dns.show()
+    dns_layer = dns.get_layer("DNS")  #helper method to get a specified layer
+    print(dns_layer.addr)
+    addr = dns_layer.addr
     print("\n\n")
