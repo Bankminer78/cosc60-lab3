@@ -22,7 +22,7 @@ class Packet:
         if isinstance(self.payload, Packet):
             self.payload.add_payload(payload)
         else:
-            if isinstance(self, IP) and isinstance(payload, UDP) or isinstance(payload, TCP):
+            if isinstance(self, IP) and (isinstance(payload, UDP) or isinstance(payload, TCP)):
                 payload.src_ip = self.src_ip
                 payload.dst_ip = self.dst_ip
                 if isinstance(payload, UDP):

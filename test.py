@@ -16,9 +16,7 @@ if __name__ == "__main__":
     ip = IP(src_ip=my_ip, dst_ip="8.8.8.8")
     icmp = ICMP(id=1, seq=1, type=8)
 
-    #pkt = Ether(src_mac=my_mac, dst_mac=dst_mac)/IP(src_ip=my_ip, dst_ip="8.8.8.8")/ICMP(id=1, seq=1, data=b'')
     pkt = eth / ip / icmp
-    #TODO: Doesnt work yet
     send(pkt) #show send works at Layer 3 (watch in wireshark for send and reply)
     
     time.sleep(2)
@@ -30,8 +28,6 @@ if __name__ == "__main__":
     time.sleep(1) #make sure we don't send before seq 2 reply comes back
     icmp.seq = 3
     ret_pkt = sr(pkt)
-    print(pkt)
-    print(ret_pkt)
     ret_pkt.show()
     print("\n\n")
 
@@ -43,12 +39,11 @@ if __name__ == "__main__":
     dns = sr(pkt)
     dns.show()
     dns_layer = dns.get_layer("DNS")  #helper method to get a specified layer
-    print(dns_layer.addr)
+    #print(dns_layer.addr)
     addr = dns_layer.addr
     print("\n\n")
 
-    #Example 3: TCP/HTTP
-    #"173.201.179.249"
+    # #Example 3: TCP/HTTP
     print("\nTCP example")
     sport = random.getrandbits(16)
     #turn off OS replying with RST after recieving SYN ACK reply from server
